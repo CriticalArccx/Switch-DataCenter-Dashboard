@@ -14,8 +14,52 @@ def safe_get(sheets, key):
     val = sheets.get(key) if sheets else None
     return val if val is not None else pd.DataFrame()
 
+# ─── Legend Helper (centralized — fixes text overlap issues) ─────────────────
+def legend_config(n_items=None, position=None, font_size=10, font_color='#8A8F98'):
+    """
+    Returns a Plotly legend dict that avoids label overlap.
+
+    - If there are more than 3 legend items (or position='right' is forced),
+      uses a VERTICAL legend stacked to the right of the chart. Vertical
+      legends stack downward, so long/many labels never collide.
+    - Only uses a HORIZONTAL legend (below the chart) when there are 3 or
+      fewer short items, where it's guaranteed to fit on one line.
+
+    Always pair a 'right' legend with extra right margin (see margin_for_legend).
+    """
+    use_vertical = position == 'right' or (n_items is not None and n_items > 3)
+
+    if use_vertical:
+        return dict(
+            orientation='v',
+            yanchor='middle', y=0.5,
+            xanchor='left', x=1.02,
+            font=dict(size=font_size, color=font_color, family='Barlow, sans-serif'),
+            bgcolor='rgba(0,0,0,0)',
+            tracegroupgap=2,
+        )
+    else:
+        return dict(
+            orientation='h',
+            yanchor='top', y=-0.18,
+            xanchor='center', x=0.5,
+            font=dict(size=font_size, color=font_color, family='Barlow, sans-serif'),
+            bgcolor='rgba(0,0,0,0)',
+        )
+
+def margin_for_legend(n_items=None, position=None, base=dict(t=40, b=10, l=10, r=10)):
+    """Returns a margin dict with enough right-side room for a vertical legend."""
+    use_vertical = position == 'right' or (n_items is not None and n_items > 3)
+    m = dict(base)
+    if use_vertical:
+        m['r'] = max(m.get('r', 10), 130)
+    else:
+        m['b'] = max(m.get('b', 10), 60)
+    return m
+
 # ─── Chart Helpers ────────────────────────────────────────────────────────────
 def plotly_bar(df, x, y, title, color=None, color_map=None, orientation='v'):
+    n_items = df[color].nunique() if color else None
     fig = px.bar(df, x=x, y=y, title=title, color=color,
                  color_discrete_map=color_map, orientation=orientation,
                  template="plotly_dark")
@@ -23,14 +67,18 @@ def plotly_bar(df, x, y, title, color=None, color_map=None, orientation='v'):
         plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
         font=dict(family='Barlow, sans-serif', size=11, color='#8A8F98'),
         title_font=dict(size=12, color='#8A8F98', family='Barlow Condensed'),
-        margin=dict(t=40, b=10, l=10, r=10),
-        legend=dict(bgcolor='rgba(0,0,0,0)', font=dict(color='#8A8F98')),
-        xaxis=dict(gridcolor='#3E4248', tickfont=dict(size=11, color='#8A8F98')),
-        yaxis=dict(gridcolor='#3E4248', tickfont=dict(size=11, color='#8A8F98')),
+        margin=margin_for_legend(n_items),
+        legend=legend_config(n_items),
+        xaxis=dict(gridcolor='#3E4248', tickfont=dict(size=11, color='#8A8F98'),
+                   automargin=True),
+        yaxis=dict(gridcolor='#3E4248', tickfont=dict(size=11, color='#8A8F98'),
+                   automargin=True),
+        uniformtext=dict(minsize=8, mode='hide'),
     )
     return fig
 
 def plotly_donut(labels, values, title, colors):
+    n_items = len(set(labels))
     fig = go.Figure(go.Pie(
         labels=labels, values=values, hole=0.65,
         marker_colors=colors,
@@ -43,12 +91,9 @@ def plotly_donut(labels, values, title, colors):
         plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
         font=dict(family='Barlow, sans-serif', size=11, color='#8A8F98'),
         showlegend=True,
-        legend=dict(
-            bgcolor='rgba(0,0,0,0)',
-            font=dict(size=11, color='#8A8F98', family='Barlow, sans-serif'),
-            orientation='v', x=1.02, y=0.5
-        ),
-        margin=dict(t=40, b=10, l=10, r=150),
+        legend=legend_config(n_items, position='right'),
+        margin=margin_for_legend(n_items, position='right', base=dict(t=40, b=10, l=10, r=10)),
+        uniformtext=dict(minsize=8, mode='hide'),
     )
     return fig
 
@@ -69,8 +114,11 @@ def plotly_hbar_pct(df, y_col, pct_col, title):
         plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
         font=dict(family='Barlow, sans-serif', size=11, color='#8A8F98'),
         margin=dict(t=40, b=10, l=10, r=10),
-        xaxis=dict(gridcolor='#3E4248', range=[0, 105], tickfont=dict(color='#8A8F98')),
-        yaxis=dict(gridcolor='#3E4248', tickfont=dict(size=10, color='#8A8F98')),
+        xaxis=dict(gridcolor='#3E4248', range=[0, 105], tickfont=dict(color='#8A8F98'),
+                   automargin=True),
+        yaxis=dict(gridcolor='#3E4248', tickfont=dict(size=10, color='#8A8F98'),
+                   automargin=True),
+        uniformtext=dict(minsize=8, mode='hide'),
         height=400
     )
     return fig
@@ -151,8 +199,6 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
             with c4: kpi_card("In Progress", len(in_progress), "kpi-blue", "actively worked")
             with c5: kpi_card("High Priority", len(high_priority), "kpi-red", "open & high")
 
-            
-
             # ── Status filter pills ──
             st.markdown("<div style='margin-top: 1.2rem;'></div>", unsafe_allow_html=True)
             st.markdown(
@@ -178,7 +224,6 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
             if selected:
                 issues = issues[issues["status"].isin(selected)]
 
-      
             section("Issue Breakdown")
             col_l, col_r = st.columns(2)
 
@@ -196,7 +241,7 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                     priority_counts = priority_counts.sort_values('_sort').drop(columns='_sort')
 
                     color_list = get_color_list(priority_counts['Priority'])
-                                  
+
                     st.plotly_chart(plotly_donut(priority_counts['Priority'],
                                                  priority_counts['Count'],
                                                  "All Issues by Priority", color_list),
@@ -228,7 +273,7 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                                      .sort_values('Count', ascending=False).head(15))
                 fig = plotly_bar(contractor_counts, 'assigned_company', 'Count',
                                  'All Issues per Contractor', color='Count')
-                fig.update_layout(xaxis_tickangle=-35)
+                fig.update_layout(xaxis_tickangle=-35, margin=dict(t=40, b=110, l=10, r=10))
                 st.plotly_chart(fig, use_container_width=True)
 
             section("Open Issues Detail")
@@ -273,7 +318,7 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
     # ══════════════════════════════════════════════════════════════
     # TAB 2 — CHECKLIST (PFC)
     # ══════════════════════════════════════════════════════════════
-            
+
     with tab2:
         cl_statuses = ["All"]
         if not checklists.empty and "status" in checklists.columns:
@@ -296,14 +341,7 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
             levels_ordered = LEVELS_ORDERED
             active_levels = [lv for lv in levels_ordered if lv in checklists['level'].values]
 
-        
-
-
             section("Checklist Status by Level")
-
-            
-
-            donut_cols = st.columns(len(active_levels))
 
             donut_cols = st.columns(len(active_levels))
             for i, lv in enumerate(active_levels):
@@ -312,6 +350,7 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                     status_cts = lv_df['status'].value_counts().reset_index()
                     status_cts.columns = ['Status', 'Count']
                     total = len(lv_df)
+                    n_statuses = len(status_cts)
 
                     colors = get_color_list(status_cts['Status'])
 
@@ -323,6 +362,7 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                         textinfo='percent',
                         textfont=dict(size=11, color='#3E4248', family='Barlow, sans-serif'),
                         hovertemplate='%{label}: %{value}<extra></extra>',
+                        insidetextorientation='radial',
                     ))
                     fig_donut.update_layout(
                         title=dict(
@@ -339,14 +379,12 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                         )],
                         plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                         font=dict(family='Barlow, sans-serif', color='#3E4248'),
-                        margin=dict(t=40, b=10, l=10, r=10),
+                        margin=margin_for_legend(n_statuses, base=dict(t=40, b=10, l=10, r=10)),
                         showlegend=True,
-                        legend=dict(
-                            font=dict(size=10, color='#3E4248'),
-                            orientation='h', yanchor='top', y=-0.05,
-                            xanchor='center', x=0.5
-                        ),
-                        height=280,
+                        legend=legend_config(n_statuses, font_size=10, font_color='#3E4248'),
+                        uniformtext=dict(minsize=8, mode='hide'),
+                        # Taller so a stacked vertical legend (4 statuses is common) has room
+                        height=320 if n_statuses > 3 else 280,
                     )
                     st.plotly_chart(fig_donut, use_container_width=True)
 
@@ -385,23 +423,22 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                     barmode='stack',
                     plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                     font=dict(family='Barlow, sans-serif', size=11, color='#8A8F98'),
-                    margin=dict(t=10, b=10, l=10, r=40),
-                    legend=dict(bgcolor='rgba(0,0,0,0)',
-                                font=dict(color='#8A8F98'), orientation='h',
-                                x=0.5, xanchor='center', y=-0.08),
-                    xaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#8A8F98')),
-                    yaxis=dict(tickfont=dict(size=10, color='#8A8F98')),
+                    margin=dict(t=10, b=10, l=10, r=10),
+                    legend=legend_config(2),
+                    xaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#8A8F98'),
+                               automargin=True),
+                    yaxis=dict(tickfont=dict(size=10, color='#8A8F98'), automargin=True),
+                    uniformtext=dict(minsize=8, mode='hide'),
                     height=max(250, len(disc_comp) * 45)
                 )
                 st.plotly_chart(fig, use_container_width=True)
-
 
             # ── Checklists by Level & Discipline ─────────────────────────
             section("Checklists by Level & Discipline")
 
             level_disc = checklists.groupby(['level', 'discipline']).size().reset_index(name='Count')
             level_disc = level_disc[level_disc['level'].isin(active_levels)]
-
+            n_disciplines = level_disc['discipline'].nunique()
 
             fig_disc = go.Figure()
             for disc in level_disc['discipline'].unique():
@@ -418,22 +455,20 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                 barmode='stack',
                 plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                 font=dict(family='Barlow, sans-serif', size=11, color='#8A8F98'),
-                margin=dict(t=10, b=10, l=10, r=30),
-                xaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#3E4248')),
+                margin=margin_for_legend(n_disciplines, base=dict(t=10, b=10, l=10, r=30)),
+                xaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#3E4248'), automargin=True),
                 yaxis=dict(
                     tickfont=dict(size=13, color="#2B2828"),
                     categoryorder='array',
-                    categoryarray=list(reversed(active_levels))
+                    categoryarray=list(reversed(active_levels)),
+                    automargin=True,
                 ),
-                legend=dict(
-                    orientation='h', yanchor='bottom', y=1.02,
-                    xanchor='left', x=0,
-                    font=dict(color='#8A8F98', size=11)
-                ),
-                height=50 + len(active_levels) * 60,
+                legend=legend_config(n_disciplines),
+                uniformtext=dict(minsize=8, mode='hide'),
+                # More disciplines stacked vertically to the right needs more height too
+                height=max(50 + len(active_levels) * 60, 40 * n_disciplines if n_disciplines > 3 else 0, 250),
             )
             st.plotly_chart(fig_disc, use_container_width=True)
-
 
             # ── Open Checklists by Company & Level ───────────────────────
             section("Open Checklists by Company & Level")
@@ -446,8 +481,7 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                 top_cos = (co_level.groupby('assigned_company')['Count'].sum()
                            .nlargest(10).index.tolist())
                 co_level = co_level[co_level['assigned_company'].isin(top_cos)]
-
-    
+                n_levels_present = co_level['level'].nunique()
 
                 fig_co = go.Figure()
                 for lv in active_levels:
@@ -465,17 +499,15 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                     barmode='group',
                     plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                     font=dict(family='Barlow, sans-serif', size=11, color='#8A8F98'),
-                    margin=dict(t=10, b=80, l=10, r=10),
+                    margin=margin_for_legend(n_levels_present, base=dict(t=10, b=80, l=10, r=10)),
                     xaxis=dict(
                         tickfont=dict(size=11, color='#8A8F98'),
-                        tickangle=-35
+                        tickangle=-35,
+                        automargin=True,
                     ),
-                    yaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#8A8F98')),
-                    legend=dict(
-                        orientation='h', yanchor='bottom', y=1.02,
-                        xanchor='left', x=0,
-                        font=dict(color='#8A8F98', size=11)
-                    ),
+                    yaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#8A8F98'), automargin=True),
+                    legend=legend_config(n_levels_present),
+                    uniformtext=dict(minsize=8, mode='hide'),
                     height=400,
                 )
                 st.plotly_chart(fig_co, use_container_width=True)
@@ -563,7 +595,7 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                 ("Not Started", not_started,  get_color('Not Started')),
                 ("In Progress", in_prog + assigned, get_color('In Progress')),
             ]
-            
+
             kpi_cols = st.columns(len(kpi_data))
             for i, (label, value, color) in enumerate(kpi_data):
                 with kpi_cols[i]:
@@ -590,6 +622,7 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                 section("Tests by Status")
                 status_counts = tests['status'].value_counts().reset_index()
                 status_counts.columns = ['Status', 'Count']
+                n_statuses = len(status_counts)
 
                 color_list = get_color_list(status_counts['Status'])
 
@@ -601,6 +634,7 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                     textinfo='percent',
                     textfont=dict(size=12, color='#F0F0F0', family='Barlow, sans-serif'),
                     hovertemplate='%{label}: %{value}<extra></extra>',
+                    insidetextorientation='radial',
                 ))
                 fig_donut.update_layout(
                     annotations=[dict(
@@ -611,14 +645,11 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                     )],
                     plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                     font=dict(family='Barlow, sans-serif', color='#8A8F98'),
-                    margin=dict(t=10, b=10, l=10, r=10),
+                    margin=margin_for_legend(n_statuses, base=dict(t=10, b=10, l=10, r=10)),
                     showlegend=True,
-                    legend=dict(
-                        font=dict(size=11, color='#8A8F98'),
-                        orientation='h', yanchor='top', y=-0.05,
-                        xanchor='center', x=0.5
-                    ),
-                    height=300,
+                    legend=legend_config(n_statuses),
+                    uniformtext=dict(minsize=8, mode='hide'),
+                    height=320 if n_statuses > 3 else 300,
                 )
                 st.plotly_chart(fig_donut, use_container_width=True)
 
@@ -696,13 +727,10 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                     plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                     font=dict(family='Barlow, sans-serif', size=11, color='#8A8F98'),
                     margin=dict(t=10, b=10, l=10, r=10),
-                    xaxis=dict(tickfont=dict(size=12, color="#201E1E")),
-                    yaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#8A8F98')),
-                    legend=dict(
-                        orientation='h', yanchor='bottom', y=1.02,
-                        xanchor='left', x=0,
-                        font=dict(color="#4B5058", size=11)
-                    ),
+                    xaxis=dict(tickfont=dict(size=12, color="#201E1E"), automargin=True),
+                    yaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#8A8F98'), automargin=True),
+                    legend=legend_config(3),
+                    uniformtext=dict(minsize=8, mode='hide'),
                     height=350,
                 )
                 st.plotly_chart(fig_unit, use_container_width=True)
@@ -748,14 +776,11 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                     barmode='stack',
                     plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                     font=dict(family='Barlow, sans-serif', size=11, color='#8A8F98'),
-                    margin=dict(t=10, b=10, l=10, r=40),
-                    xaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#8A8F98')),
-                    yaxis=dict(tickfont=dict(size=11, color="#1A1717")),
-                    legend=dict(
-                        orientation='h', yanchor='bottom', y=1.02,
-                        xanchor='left', x=0,
-                        font=dict(color='#8A8F98', size=11)
-                    ),
+                    margin=margin_for_legend(3, base=dict(t=10, b=10, l=10, r=40)),
+                    xaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#8A8F98'), automargin=True),
+                    yaxis=dict(tickfont=dict(size=11, color="#1A1717"), automargin=True),
+                    legend=legend_config(3),
+                    uniformtext=dict(minsize=8, mode='hide'),
                     height=max(200, len(co_summary) * 60),
                 )
                 st.plotly_chart(fig_co, use_container_width=True)
@@ -890,7 +915,6 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
 
             st.markdown("<div style='height: 16px'></div>", unsafe_allow_html=True)
 
-    
             # ── Filters row: Status | Building Phase | Floor ──
             f1, f2, f3 = st.columns(3)
             with f1:
@@ -913,9 +937,8 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
             if sel_floor != 'All':
                 equipment = equipment[equipment['floor'] == sel_floor]
 
-            eq_filtered = equipment 
+            eq_filtered = equipment
 
-    
             # ── Equipment by Type ────────────────────────────────────
             section("Equipment by Type")
 
@@ -941,12 +964,12 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                 plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                 font=dict(family='Barlow, sans-serif', size=11, color='#8A8F98'),
                 margin=dict(t=10, b=10, l=10, r=40),
-                xaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#8A8F98')),
-                yaxis=dict(tickfont=dict(size=11, color='#8A8F98')),
+                xaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#8A8F98'), automargin=True),
+                yaxis=dict(tickfont=dict(size=11, color='#8A8F98'), automargin=True),
+                uniformtext=dict(minsize=8, mode='hide'),
                 height=max(300, len(type_summary) * 28),
             )
             st.plotly_chart(fig_type, use_container_width=True)
-
 
             # ── Checklist Completion by Equipment Type ────────────────
             section("Checklist Completion by Equipment Type")
@@ -982,11 +1005,11 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                 barmode='stack',
                 plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                 font=dict(family='Barlow, sans-serif', size=11, color='#8A8F98'),
-                margin=dict(t=10, b=10, l=10, r=50),
-                xaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#8A8F98')),
-                yaxis=dict(tickfont=dict(size=11, color='#8A8F98')),
-                legend=dict(orientation='h', yanchor='bottom', y=1.02,
-                            xanchor='left', x=0, font=dict(color='#8A8F98', size=11)),
+                margin=margin_for_legend(2, base=dict(t=10, b=10, l=10, r=50)),
+                xaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#8A8F98'), automargin=True),
+                yaxis=dict(tickfont=dict(size=11, color='#8A8F98'), automargin=True),
+                legend=legend_config(2),
+                uniformtext=dict(minsize=8, mode='hide'),
                 height=max(300, len(cl_by_type) * 28),
             )
             st.plotly_chart(fig_cl, use_container_width=True)
@@ -1023,11 +1046,11 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                     barmode='stack',
                     plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                     font=dict(family='Barlow, sans-serif', size=11, color='#8A8F98'),
-                    margin=dict(t=10, b=10, l=10, r=40),
-                    xaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#8A8F98')),
-                    yaxis=dict(tickfont=dict(size=11, color='#8A8F98')),
-                    legend=dict(orientation='h', yanchor='bottom', y=1.02,
-                                xanchor='left', x=0, font=dict(color='#8A8F98', size=11)),
+                    margin=margin_for_legend(2, base=dict(t=10, b=10, l=10, r=40)),
+                    xaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#8A8F98'), automargin=True),
+                    yaxis=dict(tickfont=dict(size=11, color='#8A8F98'), automargin=True),
+                    legend=legend_config(2),
+                    uniformtext=dict(minsize=8, mode='hide'),
                     height=max(200, len(iss_by_type) * 35),
                 )
                 st.plotly_chart(fig_iss, use_container_width=True)
@@ -1062,9 +1085,10 @@ def render(config: dict, filters: dict, all_sheets: dict = None):
                 fig_bldg.update_layout(
                     plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                     font=dict(family='Barlow, sans-serif', size=11, color='#8A8F98'),
-                    margin=dict(t=10, b=10, l=10, r=250),
-                    xaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#8A8F98')),
-                    yaxis=dict(tickfont=dict(size=12, color='#8A8F98')),
+                    margin=dict(t=10, b=10, l=10, r=270),
+                    xaxis=dict(gridcolor='#3E4248', tickfont=dict(color='#8A8F98'), automargin=True),
+                    yaxis=dict(tickfont=dict(size=12, color='#8A8F98'), automargin=True),
+                    uniformtext=dict(minsize=8, mode='hide'),
                     height=max(250, len(bldg_summary) * 45),
                 )
                 st.plotly_chart(fig_bldg, use_container_width=True)
